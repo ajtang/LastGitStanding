@@ -9,6 +9,8 @@ you can see when it's in trouble. Working out *why* costs money, and that's rath
 
 ## Play it
 
+Live Demo: https://lgs.tangs.dev
+
 You need Go and Node. No Docker, no database.
 
 ```bash
