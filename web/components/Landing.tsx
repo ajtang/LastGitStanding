@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import { count } from "@/lib/format";
-import type { Run } from "@/lib/types";
+import { clock, count } from "@/lib/format";
+import { forgetGame, loadSavedGame } from "@/lib/savedGame";
+import type { Frame, Run } from "@/lib/types";
 import { WallAdmin } from "./WallAdmin";
 
 export function Leaderboard({ runs }: { runs: Run[] }) {
@@ -32,12 +33,26 @@ export function Landing({ onStart }: { onStart: (id: string) => void }) {
   const [player, setPlayer] = useState("");
   const [seed, setSeed] = useState("");
   const [runs, setRuns] = useState<Run[]>([]);
+  const [resume, setResume] = useState<Frame | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadRuns = () => api.leaderboard().then((r) => setRuns(r.runs ?? [])).catch(() => {});
   useEffect(() => {
     loadRuns();
+  }, []);
+
+  useEffect(() => {
+    const id = loadSavedGame();
+    if (!id) return;
+    api.frame(id).then((f) => {
+      // It may have ended in the couple of minutes it keeps running after the tab closes.
+      if (f.ledger?.gameOverReason) forgetGame(id);
+      else setResume(f);
+    }).catch((err) => {
+      // Only a 404 means the run is gone. A gateway blip mustn't lose it for good.
+      if (err instanceof ApiError && err.status === 404) forgetGame(id);
+    });
   }, []);
 
   const start = async (e: React.FormEvent) => {
@@ -66,6 +81,12 @@ export function Landing({ onStart }: { onStart: (id: string) => void }) {
           There is no console. Every change is a commit, through a pipeline, reconciled by Flux, and it
           all takes longer than you&apos;d like, especially at 3am.
         </p>
+        {resume && (
+          <div className="resume">
+            <button type="button" className="btn primary big" onClick={() => onStart(resume.gameId)}>Resume your run</button>
+            <span className="muted">{clock(resume.tick)} · {count(resume.ledger?.users ?? 0)} users</span>
+          </div>
+        )}
         <form className="landing-form" onSubmit={start}>
           <label>
             <span>Name for the postmortem</span>
@@ -75,7 +96,7 @@ export function Landing({ onStart }: { onStart: (id: string) => void }) {
             <span>Seed (optional)</span>
             <input value={seed} onChange={(e) => setSeed(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="random" />
           </label>
-          <button className="btn primary big" disabled={busy}>{busy ? "Paging you…" : "Take the pager"}</button>
+          <button className={resume ? "btn big" : "btn primary big"} disabled={busy}>{busy ? "Paging you…" : resume ? "Start a new run" : "Take the pager"}</button>
         </form>
         {error && <p className="error" role="alert">{error}</p>}
       </div>

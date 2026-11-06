@@ -45,6 +45,7 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .landing-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--text-2); }
 .landing-form input { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 15px; color: var(--text); min-width: 0; }
 .landing-form button { grid-column: 1 / -1; }
+.resume { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; max-width: 480px; font-size: 13px; }
 .wall { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
 .wall h2 { font: 700 15px var(--mono); }
 /* Invisible until hovered or focused, and still big enough to hit once you know it's there. */

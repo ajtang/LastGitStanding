@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { forgetGame, saveGame } from "@/lib/savedGame";
 import { useGame } from "@/lib/useGame";
 import { CityView } from "./city/CityView";
 import { Hud } from "./Hud";
@@ -47,6 +48,14 @@ export function Game({ gameId, onExit }: { gameId: string; onExit: () => void })
   const open = frame?.incidents?.filter((i) => i.resolvedTick === 0).length ?? 0;
   const firing = frame?.alerts?.length ?? 0;
   const over = frame?.ledger?.gameOverReason;
+  const loaded = frame !== null;
+
+  // Waits for a real frame, so a mistyped or expired link can't replace a good saved run.
+  useEffect(() => {
+    if (!loaded) return;
+    if (over) forgetGame(gameId);
+    else saveGame(gameId);
+  }, [gameId, loaded, over]);
 
   if (missing) {
     return (
