@@ -1,0 +1,9 @@
+bin/
+.devdata/
+node_modules/
+.next/
+*.tsbuildinfo
+.env*
+.DS_Store
+CLAUDE.md
+.dev/

@@ -1,0 +1,52 @@
+# Consumer group means this could scale out. It hasn't needed to.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: events
+  labels: { app: events }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: events }
+  template:
+    metadata:
+      labels: { app: events }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+      - name: events
+        image: lgs
+        args: [events]
+        ports:
+        - { name: grpc, containerPort: 7006 }
+        - { name: metrics, containerPort: 9090 }
+        env:
+        - name: PORT
+          value: "7006"
+        - name: METRICS_ADDR
+          value: ":9090"
+        envFrom:
+        - secretRef:
+            name: lgs-connections
+        readinessProbe:
+          grpc: { port: 7006 }
+        livenessProbe:
+          grpc: { port: 7006 }
+          initialDelaySeconds: 10
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: events
+spec:
+  selector: { app: events }
+  ports:
+  - { name: grpc, port: 7006, targetPort: grpc, appProtocol: grpc }

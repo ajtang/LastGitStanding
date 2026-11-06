@@ -1,0 +1,52 @@
+# Write-through cache over Redis. A second replica would serve stale state (ADR-0003).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infrastructure
+  labels: { app: infrastructure }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: infrastructure }
+  template:
+    metadata:
+      labels: { app: infrastructure }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+      - name: infrastructure
+        image: lgs
+        args: [infrastructure]
+        ports:
+        - { name: grpc, containerPort: 7002 }
+        - { name: metrics, containerPort: 9090 }
+        env:
+        - name: PORT
+          value: "7002"
+        - name: METRICS_ADDR
+          value: ":9090"
+        envFrom:
+        - secretRef:
+            name: lgs-connections
+        readinessProbe:
+          grpc: { port: 7002 }
+        livenessProbe:
+          grpc: { port: 7002 }
+          initialDelaySeconds: 10
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infrastructure
+spec:
+  selector: { app: infrastructure }
+  ports:
+  - { name: grpc, port: 7002, targetPort: grpc, appProtocol: grpc }

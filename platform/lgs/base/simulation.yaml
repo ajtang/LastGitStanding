@@ -1,0 +1,62 @@
+# The conductor. Exactly one, because it owns each game's clock (ADR-0002).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: simulation
+  labels: { app: simulation }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: simulation }
+  template:
+    metadata:
+      labels: { app: simulation }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+      - name: simulation
+        image: lgs
+        args: [simulation]
+        ports:
+        - { name: grpc, containerPort: 7001 }
+        - { name: metrics, containerPort: 9090 }
+        env:
+        - name: PORT
+          value: "7001"
+        - name: METRICS_ADDR
+          value: ":9090"
+        - name: LGS_INFRASTRUCTURE_ADDR
+          value: infrastructure:7002
+        - name: LGS_INCIDENT_ADDR
+          value: incident:7003
+        - name: LGS_ECONOMY_ADDR
+          value: economy:7004
+        - name: LGS_OBSERVABILITY_ADDR
+          value: observability:7005
+        - name: LGS_PLAYERSTATE_ADDR
+          value: playerstate:7007
+        envFrom:
+        - secretRef:
+            name: lgs-connections
+        readinessProbe:
+          grpc: { port: 7001 }
+        livenessProbe:
+          grpc: { port: 7001 }
+          initialDelaySeconds: 10
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: simulation
+spec:
+  selector: { app: simulation }
+  ports:
+  - { name: grpc, port: 7001, targetPort: grpc, appProtocol: grpc }

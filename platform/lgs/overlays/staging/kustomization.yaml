@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: lgs
+resources:
+- ../../base
+# The release workflow bumps staging. Production moves when someone opens a PR that
+# copies the tag across, so promoting is a reviewable diff like everything else.
+images:
+- { name: lgs, newName: lgsregistry.azurecr.io/lgs, newTag: "0.1.0" }
+- { name: lgs-web, newName: lgsregistry.azurecr.io/lgs-web, newTag: "0.1.0-staging" }
+patches:
+- target: { kind: SecretProviderClass, name: lgs-connections }
+  patch: |
+    - { op: replace, path: /spec/parameters/keyvaultName, value: REPLACE_WITH_KEYVAULT_OUTPUT }
+    - { op: replace, path: /spec/parameters/clientID, value: REPLACE_WITH_IDENTITY_CLIENT_ID }
+    - { op: replace, path: /spec/parameters/tenantId, value: REPLACE_WITH_TENANT_ID }
+- target: { kind: ServiceAccount, name: lgs-secrets }
+  patch: |
+    - { op: replace, path: /metadata/annotations/azure.workload.identity~1client-id, value: REPLACE_WITH_IDENTITY_CLIENT_ID }
+- target: { kind: Deployment, name: gateway }
+  patch: |
+    - { op: replace, path: /spec/template/spec/containers/0/env/6/value, value: "https://staging.lastgitstanding.example" }
+- target: { kind: Ingress, name: gateway }
+  patch: |
+    - { op: replace, path: /spec/rules/0/host, value: api.staging.lastgitstanding.example }
+- target: { kind: Ingress, name: web }
+  patch: |
+    - { op: replace, path: /spec/rules/0/host, value: staging.lastgitstanding.example }

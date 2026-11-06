@@ -1,0 +1,261 @@
+syntax = "proto3";
+
+package lgs.v1;
+
+option go_package = "github.com/ajtang/LastGitStanding/gen/lgs/v1;lgsv1";
+
+// These messages double as the domain vocabulary. See ADR-0004 for why there
+// is no second set of "internal" structs and no mapping layer between them.
+
+// PlatformSpec is desired state: what the player's platform.yaml parses into.
+message PlatformSpec {
+  repeated RegionSpec regions = 1;
+  AppSpec app = 2;
+  DatabaseSpec database = 3;
+  CacheSpec cache = 4;
+  IngressSpec ingress = 5;
+  ObservabilitySpec observability = 6;
+}
+
+message RegionSpec {
+  string name = 1;
+  int32 nodes = 2;
+  string node_size = 3; // small | standard | large
+  int32 towers = 4;     // load balancers
+}
+
+message AppSpec {
+  string version = 1;
+  int32 replicas = 2;   // per region
+  string rollout = 3;   // rolling | canary
+  int32 retries = 4;
+  bool circuit_breaker = 5;
+}
+
+message DatabaseSpec {
+  string tier = 1;
+  int32 read_replicas = 2;
+  int32 storage_gb = 3;
+  repeated string indexes = 4;
+  string primary_region = 5;
+  string standby_region = 6;
+}
+
+message CacheSpec {
+  int32 nodes = 1;
+  bool replicated = 2;
+}
+
+message IngressSpec {
+  bool cert_manager = 1;
+  int32 cert_renewal = 2; // bump to renew by hand, like an animal
+}
+
+message ObservabilitySpec {
+  string metrics = 1;  // basic | full
+  string logs = 2;     // none | sampled | full
+  string traces = 3;   // none | sampled | full
+  string alerting = 4; // none | threshold | slo
+}
+
+// Topology is actual state: what Flux has managed to make true so far.
+message Topology {
+  repeated RegionState regions = 1;
+  DatabaseState database = 2;
+  CacheSpec cache = 3;
+  IngressState ingress = 4;
+  ObservabilitySpec observability = 5;
+  int32 retries = 6;
+  bool circuit_breaker = 7;
+  string rollout = 8;
+  string revision = 9;
+}
+
+message RegionState {
+  string name = 1;
+  string node_size = 2;
+  int32 nodes_ready = 3;
+  int32 nodes_provisioning = 4;
+  int32 towers = 5;
+  repeated Pod pods = 6;
+  int32 provisioning_ticks = 7; // >0 while a brand new region is being built
+}
+
+message Pod {
+  string id = 1;
+  string version = 2;
+  string phase = 3; // pending | starting | ready | terminating | crashloop
+  int32 age_ticks = 4;
+  int32 phase_ticks = 5;
+}
+
+message DatabaseState {
+  string tier = 1;
+  int32 read_replicas = 2;
+  int32 storage_gb = 3;
+  repeated string indexes = 4;
+  string primary_region = 5;
+  string standby_region = 6;
+  int32 failover_ticks = 7; // >0 means the primary is unavailable right now
+}
+
+message IngressState {
+  bool cert_manager = 1;
+  int32 cert_expires_at_tick = 2;
+  int32 cert_renewal = 3;
+}
+
+message VersionFlaw {
+  string version = 1;
+  double error_rate = 2;
+  double leak_mb_per_tick = 3;
+}
+
+// Effects is how the Incident Engine bends reality. It is ground truth, so it
+// must never reach the browser: the gateway strips it from every frame.
+message Effects {
+  double traffic_multiplier = 1;
+  double query_cost_multiplier = 2;
+  bool cache_down = 3;
+  repeated string regions_down = 4;
+  bool tls_expired = 5;
+  double partition_loss = 6;
+  repeated VersionFlaw flaws = 7;
+  string hot_query = 8;
+  double fine_usd = 9;
+  double churn_shock = 10;
+}
+
+message ComponentHealth {
+  double utilization = 1;
+  double latency_ms = 2;
+  double error_rate = 3;
+}
+
+message RegionHealth {
+  string name = 1;
+  bool up = 2;
+  double offered_rps = 3;
+  double capacity_rps = 4;
+  double utilization = 5;
+  double error_rate = 6;
+  double backlog = 7;
+  double tower_utilization = 8;
+  int32 pods_ready = 9;
+  int32 pods_pending = 10;
+}
+
+// Health is what the flow model computed for one tick.
+message Health {
+  double offered_rps = 1;
+  double served_rps = 2;
+  double error_rate = 3;
+  double latency_mean_ms = 4;
+  double latency_p50_ms = 5;
+  double latency_p95_ms = 6;
+  double latency_p99_ms = 7;
+  repeated RegionHealth regions = 8;
+  ComponentHealth ingress = 9;
+  ComponentHealth app = 10;
+  ComponentHealth cache = 11;
+  ComponentHealth database = 12;
+  double cache_hit_ratio = 13;
+  double storage_used_gb = 14;
+  double storage_utilization = 15;
+  double memory_utilization = 16;
+  repeated string oom_killed_pods = 17;
+  double retry_amplification = 18;
+  double diurnal = 19;
+  double worst_version_error_rate = 20; // per-attempt, per-version: what canary analysis compares
+}
+
+message Ledger {
+  double budget = 1;
+  double revenue_per_day = 2;
+  double cost_per_day = 3;
+  double users = 4;
+  double engineer_hours = 5;
+  int32 engineers = 6;
+  double tech_debt = 7;
+  double slo_target = 8;
+  double rolling_availability = 9;
+  double error_budget_remaining = 10;
+  string stage = 11;
+  double next_stage_users = 12;
+  double satisfaction = 13;
+  double feature_cost_hours = 14;
+  double score = 15;
+  string game_over_reason = 16; // empty while you still have a job
+  bool won = 17;
+}
+
+message Event {
+  int32 tick = 1;
+  string source = 2;
+  string kind = 3;
+  string severity = 4; // info | warn | page
+  string message = 5;
+  string ref = 6;
+}
+
+// IncidentView deliberately has no kind field until someone has diagnosed it.
+// You get symptoms. Causes are earned.
+message IncidentView {
+  string id = 1;
+  string title = 2;
+  string status = 3; // firing | diagnosed | resolved
+  int32 opened_tick = 4;
+  int32 detected_tick = 5; // 0 until a human knows about it
+  int32 resolved_tick = 6;
+  string kind = 7;         // empty until diagnosed or resolved
+  string runbook = 8;      // unlocked by a correct diagnosis
+  bool postmortem_done = 9;
+  int32 wrong_guesses = 10;
+  string detected_by = 11; // alert | customers
+}
+
+message PipelineRun {
+  string sha = 1;
+  string message = 2;
+  string stage = 3;  // lint | policy | plan | merge | done
+  string status = 4; // running | passed | failed
+  int32 stage_ticks_left = 5;
+  repeated string errors = 6;
+  int32 started_tick = 7;
+}
+
+message FluxStatus {
+  int32 next_sync_in = 1;
+  string applied_sha = 2;
+  string target_sha = 3;
+  string status = 4; // synced | reconciling | stalled
+  string detail = 5;
+}
+
+message GitOpsStatus {
+  string head_sha = 1;
+  repeated PipelineRun pipelines = 2;
+  FluxStatus flux = 3;
+  repeated string versions = 4;
+}
+
+message Frame {
+  string game_id = 1;
+  int32 tick = 2;
+  int32 speed = 3; // 0 is paused
+  Health health = 4;
+  Ledger ledger = 5;
+  Topology topology = 6;
+  Effects effects = 7;
+  repeated IncidentView incidents = 8;
+  repeated Event events = 9;
+  GitOpsStatus gitops = 10;
+  repeated AlertState alerts = 11;
+}
+
+message AlertState {
+  string name = 1;
+  string severity = 2;
+  string summary = 3;
+  int32 since_tick = 4;
+}

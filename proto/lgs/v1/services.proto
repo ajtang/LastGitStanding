@@ -1,0 +1,291 @@
+syntax = "proto3";
+
+package lgs.v1;
+
+import "lgs/v1/world.proto";
+
+option go_package = "github.com/ajtang/LastGitStanding/gen/lgs/v1;lgsv1";
+
+// ---- Simulation Engine: the conductor. Owns the clock and nothing else's data.
+
+service Simulation {
+  rpc StartGame(StartGameRequest) returns (StartGameResponse);
+  rpc Submit(Command) returns (CommandResult);
+  rpc Watch(WatchRequest) returns (stream Frame);
+  rpc GetFrame(WatchRequest) returns (Frame);
+}
+
+message StartGameRequest {
+  string game_id = 1;
+  int64 seed = 2;
+  int32 speed = 3;
+}
+message StartGameResponse { Frame frame = 1; }
+message WatchRequest { string game_id = 1; }
+
+message Command {
+  string game_id = 1;
+  oneof action {
+    CommitAction commit = 2;
+    ShipAction ship = 3;
+    DiagnoseAction diagnose = 4;
+    PostmortemAction postmortem = 5;
+    PayDebtAction pay_debt = 6;
+    HireAction hire = 7;
+    SpeedAction speed = 8;
+  }
+}
+message CommitAction { string yaml = 1; string message = 2; }
+message ShipAction { string kind = 1; } // feature | hotfix
+message DiagnoseAction { string incident_id = 1; string cause = 2; }
+message PostmortemAction { string incident_id = 1; }
+message PayDebtAction { double hours = 1; }
+message HireAction { int32 delta = 1; }
+message SpeedAction { int32 speed = 1; }
+
+message CommandResult {
+  bool ok = 1;
+  string message = 2;
+  string ref = 3;
+}
+
+// ---- Infrastructure Service: the git repo, the pipeline, Flux, actual state.
+
+service Infrastructure {
+  rpc Init(InitGame) returns (InitResponse);
+  rpc Reconcile(ReconcileRequest) returns (ReconcileResponse);
+  rpc Commit(CommitRequest) returns (CommitResponse);
+  rpc PublishVersion(PublishVersionRequest) returns (PublishVersionResponse);
+  rpc Plan(PlanRequest) returns (PlanResponse);
+  rpc ListCommits(GameRef) returns (ListCommitsResponse);
+}
+
+message InitGame { string game_id = 1; int64 seed = 2; }
+message GameRef { string game_id = 1; }
+message InitResponse { Topology topology = 1; }
+
+message ReconcileRequest {
+  string game_id = 1;
+  int32 tick = 2;
+  repeated string oom_killed_pods = 3;
+  repeated string regions_down = 4;
+  double worst_version_error_rate = 5; // canary analysis has to look at something
+}
+message ReconcileResponse {
+  Topology topology = 1;
+  GitOpsStatus gitops = 2;
+  repeated Event events = 3;
+}
+
+message CommitRequest {
+  string game_id = 1;
+  int32 tick = 2;
+  string yaml = 3;
+  string message = 4;
+}
+message CommitResponse { string sha = 1; }
+
+message PublishVersionRequest {
+  string game_id = 1;
+  int32 tick = 2;
+  string kind = 3;
+}
+message PublishVersionResponse { string version = 1; }
+
+message PlanRequest { string game_id = 1; string yaml = 2; }
+message PlanResponse {
+  bool valid = 1;
+  repeated string errors = 2;
+  PlatformSpec spec = 3;
+}
+
+message CommitRecord {
+  string sha = 1;
+  string parent = 2;
+  string message = 3;
+  string yaml = 4;
+  int32 tick = 5;
+  string status = 6;
+}
+message ListCommitsResponse { repeated CommitRecord commits = 1; }
+
+// ---- Incident Engine: decides what goes wrong and whether it has stopped.
+
+service Incidents {
+  rpc Init(InitGame) returns (InitIncidentsResponse);
+  rpc Advance(AdvanceRequest) returns (AdvanceResponse);
+  rpc Diagnose(DiagnoseRequest) returns (DiagnoseResponse);
+  rpc Postmortem(PostmortemRequest) returns (PostmortemResponse);
+}
+message InitIncidentsResponse {}
+
+message AdvanceRequest {
+  string game_id = 1;
+  int32 tick = 2;
+  Topology topology = 3;
+  Health last_health = 4;
+  Ledger last_ledger = 5;
+  repeated AlertState firing_alerts = 6;
+}
+message AdvanceResponse {
+  Effects effects = 1;
+  repeated IncidentView incidents = 2;
+  repeated Event events = 3;
+}
+
+message DiagnoseRequest {
+  string game_id = 1;
+  int32 tick = 2;
+  string incident_id = 3;
+  string cause = 4;
+}
+message DiagnoseResponse {
+  bool correct = 1;
+  string message = 2;
+  double hours_penalty = 3;
+}
+
+message PostmortemRequest { string game_id = 1; int32 tick = 2; string incident_id = 3; }
+message PostmortemResponse { bool ok = 1; string message = 2; }
+
+// ---- Economy Engine: the only service allowed to tell you no for money reasons.
+
+service Economy {
+  rpc Init(InitGame) returns (InitEconomyResponse);
+  rpc Settle(SettleRequest) returns (SettleResponse);
+  rpc Spend(SpendRequest) returns (SpendResponse);
+  rpc Hire(HireRequest) returns (SpendResponse);
+  rpc Quote(QuoteRequest) returns (QuoteResponse);
+}
+message InitEconomyResponse { Ledger ledger = 1; }
+
+message SettleRequest {
+  string game_id = 1;
+  int32 tick = 2;
+  Topology topology = 3;
+  Health health = 4;
+  Effects effects = 5;
+  int32 open_incidents = 6;
+}
+message SettleResponse {
+  Ledger ledger = 1;
+  repeated Event events = 2;
+}
+
+message SpendRequest {
+  string game_id = 1;
+  int32 tick = 2;
+  string purpose = 3; // feature | hotfix | debt | diagnosis | postmortem
+  double hours = 4;   // only for purposes with a player-chosen amount
+}
+message SpendResponse {
+  bool ok = 1;
+  string message = 2;
+  Ledger ledger = 3;
+}
+message HireRequest { string game_id = 1; int32 tick = 2; int32 delta = 3; }
+
+message QuoteRequest { PlatformSpec spec = 1; }
+message QuoteResponse {
+  double cost_per_day = 1;
+  repeated LineItem items = 2;
+}
+message LineItem { string name = 1; double cost_per_day = 2; }
+
+// ---- Observability Service: decides what the player is allowed to know.
+
+service Observability {
+  rpc Ingest(Frame) returns (IngestResponse);
+  rpc Metrics(MetricsRequest) returns (MetricsResponse);
+  rpc Logs(LogsRequest) returns (LogsResponse);
+  rpc Traces(TracesRequest) returns (TracesResponse);
+}
+message IngestResponse { repeated AlertState firing = 1; repeated Event events = 2; }
+
+message MetricsRequest { string game_id = 1; int32 window = 2; }
+message Series {
+  string name = 1;
+  string unit = 2;
+  int32 resolution_ticks = 3;
+  repeated int32 ticks = 4;
+  repeated double values = 5;
+}
+message MetricsResponse {
+  repeated Series series = 1;
+  string tier = 2;
+}
+
+message LogsRequest { string game_id = 1; string query = 2; int32 limit = 3; }
+message LogLine {
+  int32 tick = 1;
+  string level = 2;
+  string service = 3;
+  string message = 4;
+}
+message LogsResponse {
+  repeated LogLine lines = 1;
+  string tier = 2;
+}
+
+message TracesRequest { string game_id = 1; int32 limit = 2; }
+message Span {
+  string service = 1;
+  string operation = 2;
+  double start_ms = 3;
+  double duration_ms = 4;
+  bool error = 5;
+  string note = 6;
+}
+message Trace {
+  string id = 1;
+  int32 tick = 2;
+  double total_ms = 3;
+  bool error = 4;
+  repeated Span spans = 5;
+}
+message TracesResponse {
+  repeated Trace traces = 1;
+  string tier = 2;
+}
+
+// ---- Event Processing: the slow path. Nothing here may block a tick.
+
+service EventProcessing {
+  rpc Timeline(TimelineRequest) returns (TimelineResponse);
+}
+message TimelineRequest { string game_id = 1; int32 limit = 2; }
+message TimelineResponse { repeated Event events = 1; }
+
+// ---- Player State: the only thing that survives the heat death of a run.
+
+service PlayerState {
+  rpc CreateRun(CreateRunRequest) returns (Run);
+  rpc FinishRun(FinishRunRequest) returns (Run);
+  rpc Leaderboard(LeaderboardRequest) returns (LeaderboardResponse);
+  rpc EditRun(EditRunRequest) returns (Run);
+  rpc DeleteRun(DeleteRunRequest) returns (DeleteRunResponse);
+}
+message CreateRunRequest { string player = 1; int64 seed = 2; }
+message FinishRunRequest {
+  string game_id = 1;
+  int32 tick = 2;
+  double score = 3;
+  double peak_users = 4;
+  string outcome = 5;
+  bool won = 6;
+}
+message Run {
+  string game_id = 1;
+  string player = 2;
+  int64 seed = 3;
+  int32 ticks = 4;
+  double score = 5;
+  double peak_users = 6;
+  string outcome = 7;
+  bool won = 8;
+}
+message LeaderboardRequest { int32 limit = 1; }
+message LeaderboardResponse { repeated Run runs = 1; }
+message EditRunRequest { string game_id = 1; string player = 2; double score = 3; }
+message DeleteRunRequest { string game_id = 1; }
+message DeleteRunResponse {}

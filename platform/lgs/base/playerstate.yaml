@@ -1,0 +1,52 @@
+# Stateless over Postgres, so this one could genuinely run two.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playerstate
+  labels: { app: playerstate }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: playerstate }
+  template:
+    metadata:
+      labels: { app: playerstate }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+      - name: playerstate
+        image: lgs
+        args: [playerstate]
+        ports:
+        - { name: grpc, containerPort: 7007 }
+        - { name: metrics, containerPort: 9090 }
+        env:
+        - name: PORT
+          value: "7007"
+        - name: METRICS_ADDR
+          value: ":9090"
+        envFrom:
+        - secretRef:
+            name: lgs-connections
+        readinessProbe:
+          grpc: { port: 7007 }
+        livenessProbe:
+          grpc: { port: 7007 }
+          initialDelaySeconds: 10
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: playerstate
+spec:
+  selector: { app: playerstate }
+  ports:
+  - { name: grpc, port: 7007, targetPort: grpc, appProtocol: grpc }

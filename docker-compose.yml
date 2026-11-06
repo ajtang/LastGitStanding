@@ -1,0 +1,42 @@
+# The whole platform, one container per service, as in production. If you only want
+# to play the game, `make dev` is faster and doesn't need Docker at all.
+x-service: &service
+  build: .
+  restart: unless-stopped
+  environment: &env
+    REDIS_URL: redis://redis:6379
+    DATABASE_URL: postgres://lgs:lgs@postgres:5432/lgs
+    LGS_SIMULATION_ADDR: simulation:7001
+    LGS_INFRASTRUCTURE_ADDR: infrastructure:7002
+    LGS_INCIDENT_ADDR: incident:7003
+    LGS_ECONOMY_ADDR: economy:7004
+    LGS_OBSERVABILITY_ADDR: observability:7005
+    LGS_EVENTS_ADDR: events:7006
+    LGS_PLAYERSTATE_ADDR: playerstate:7007
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 2s, retries: 20 }
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: lgs, POSTGRES_PASSWORD: lgs, POSTGRES_DB: lgs }
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "lgs"], interval: 2s, retries: 20 }
+  simulation: { <<: *service, command: [simulation] }
+  infrastructure: { <<: *service, command: [infrastructure] }
+  incident: { <<: *service, command: [incident] }
+  economy: { <<: *service, command: [economy] }
+  observability: { <<: *service, command: [observability] }
+  events: { <<: *service, command: [events] }
+  playerstate: { <<: *service, command: [playerstate] }
+  gateway:
+    <<: *service
+    command: [gateway]
+    ports: ["8080:8080"]
+  web:
+    build: { context: web }
+    ports: ["3000:3000"]
+    depends_on: [gateway]

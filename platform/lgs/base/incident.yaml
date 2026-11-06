@@ -1,0 +1,52 @@
+# Same reasoning as infrastructure (ADR-0003).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incident
+  labels: { app: incident }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: incident }
+  template:
+    metadata:
+      labels: { app: incident }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+      - name: incident
+        image: lgs
+        args: [incident]
+        ports:
+        - { name: grpc, containerPort: 7003 }
+        - { name: metrics, containerPort: 9090 }
+        env:
+        - name: PORT
+          value: "7003"
+        - name: METRICS_ADDR
+          value: ":9090"
+        envFrom:
+        - secretRef:
+            name: lgs-connections
+        readinessProbe:
+          grpc: { port: 7003 }
+        livenessProbe:
+          grpc: { port: 7003 }
+          initialDelaySeconds: 10
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incident
+spec:
+  selector: { app: incident }
+  ports:
+  - { name: grpc, port: 7003, targetPort: grpc, appProtocol: grpc }

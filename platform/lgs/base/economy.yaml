@@ -1,0 +1,52 @@
+# Same reasoning as infrastructure (ADR-0003).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: economy
+  labels: { app: economy }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: economy }
+  template:
+    metadata:
+      labels: { app: economy }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+      - name: economy
+        image: lgs
+        args: [economy]
+        ports:
+        - { name: grpc, containerPort: 7004 }
+        - { name: metrics, containerPort: 9090 }
+        env:
+        - name: PORT
+          value: "7004"
+        - name: METRICS_ADDR
+          value: ":9090"
+        envFrom:
+        - secretRef:
+            name: lgs-connections
+        readinessProbe:
+          grpc: { port: 7004 }
+        livenessProbe:
+          grpc: { port: 7004 }
+          initialDelaySeconds: 10
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: economy
+spec:
+  selector: { app: economy }
+  ports:
+  - { name: grpc, port: 7004, targetPort: grpc, appProtocol: grpc }

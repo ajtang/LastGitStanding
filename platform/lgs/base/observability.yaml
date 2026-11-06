@@ -1,0 +1,49 @@
+# Telemetry is in-memory and per-pod by design. Replicas would each see part of a game.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observability
+  labels: { app: observability }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: observability }
+  template:
+    metadata:
+      labels: { app: observability }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+      - name: observability
+        image: lgs
+        args: [observability]
+        ports:
+        - { name: grpc, containerPort: 7005 }
+        - { name: metrics, containerPort: 9090 }
+        env:
+        - name: PORT
+          value: "7005"
+        - name: METRICS_ADDR
+          value: ":9090"
+        readinessProbe:
+          grpc: { port: 7005 }
+        livenessProbe:
+          grpc: { port: 7005 }
+          initialDelaySeconds: 10
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 512Mi }
+        securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: observability
+spec:
+  selector: { app: observability }
+  ports:
+  - { name: grpc, port: 7005, targetPort: grpc, appProtocol: grpc }

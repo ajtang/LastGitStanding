@@ -1,0 +1,37 @@
+# Pulls REDIS_URL and DATABASE_URL out of Key Vault with the AKS CSI driver and syncs
+# them into the Secret the Deployments read. The overlay fills in the vault and client.
+#
+# A Kubernetes Secret only exists while a pod mounts it, so the gateway mounts this
+# volume purely to keep the sync alive, even though it never reads the file. Yes.
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: lgs-connections
+spec:
+  provider: azure
+  secretObjects:
+  - secretName: lgs-connections
+    type: Opaque
+    data:
+    - { objectName: redis-url, key: REDIS_URL }
+    - { objectName: database-url, key: DATABASE_URL }
+  parameters:
+    usePodIdentity: "false"
+    clientID: PATCHED_BY_OVERLAY
+    keyvaultName: PATCHED_BY_OVERLAY
+    tenantId: PATCHED_BY_OVERLAY
+    objects: |
+      array:
+        - |
+          objectName: redis-url
+          objectType: secret
+        - |
+          objectName: database-url
+          objectType: secret
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lgs-secrets
+  annotations:
+    azure.workload.identity/client-id: PATCHED_BY_OVERLAY

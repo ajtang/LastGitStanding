@@ -1,0 +1,9 @@
+web
+bin
+.devdata
+.next
+node_modules
+docs
+platform
+clusters
+infrastructure

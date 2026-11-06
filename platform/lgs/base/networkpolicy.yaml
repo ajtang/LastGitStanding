@@ -1,0 +1,66 @@
+# Default deny, then the call graph, written down. If a service starts calling
+# something new, this file should be part of that conversation.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tick-barrier
+spec:
+  podSelector:
+    matchExpressions:
+    - { key: app, operator: In, values: [infrastructure, incident, economy, observability, playerstate] }
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchExpressions:
+        - { key: app, operator: In, values: [simulation, gateway] }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-backends
+spec:
+  podSelector:
+    matchExpressions:
+    - { key: app, operator: In, values: [simulation, events] }
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels: { app: gateway }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: public-edge
+spec:
+  podSelector:
+    matchExpressions:
+    - { key: app, operator: In, values: [gateway, web] }
+  policyTypes: [Ingress]
+  ingress:
+  - {}
+---
+# Azure Monitor's managed Prometheus lives in kube-system. Without this, default-deny
+# gives you a clean, quiet dashboard for all the wrong reasons.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-metrics-scrape
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels: { kubernetes.io/metadata.name: kube-system }
+    ports:
+    - { protocol: TCP, port: 9090 }

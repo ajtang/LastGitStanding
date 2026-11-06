@@ -1,0 +1,57 @@
+# Builds images and asks for a deployment by committing to git. It never talks to the
+# cluster: Flux does that, the same way the game makes you do it.
+name: release
+on:
+  push: { branches: [main], paths-ignore: ["docs/**", "platform/lgs/overlays/**"] }
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  REGISTRY: ${{ vars.ACR_LOGIN_SERVER }}
+
+jobs:
+  images:
+    # Nothing to release to until the Bicep has run and these variables exist. Skipping
+    # beats a red build on every push to a fork or a repo with no Azure behind it.
+    if: vars.ACR_LOGIN_SERVER != ''
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+    - uses: actions/checkout@v4
+    - id: tag
+      run: echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+    - uses: azure/login@v2
+      with:
+        client-id: ${{ vars.AZURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    - run: az acr login --name "${REGISTRY%%.*}"
+    - run: |
+        docker build -t "$REGISTRY/lgs:${{ steps.tag.outputs.tag }}" .
+        docker push "$REGISTRY/lgs:${{ steps.tag.outputs.tag }}"
+    - run: |
+        docker build web \
+          --build-arg NEXT_PUBLIC_GATEWAY_URL=${{ vars.STAGING_GATEWAY_URL }} \
+          -t "$REGISTRY/lgs-web:${{ steps.tag.outputs.tag }}-staging"
+        docker push "$REGISTRY/lgs-web:${{ steps.tag.outputs.tag }}-staging"
+
+  deploy-staging:
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Point staging at the new images
+      working-directory: platform/lgs/overlays/staging
+      run: |
+        TAG=${{ needs.images.outputs.tag }}
+        sed -i "s/name: lgs, newName: \([^,]*\), newTag: \"[^\"]*\"/name: lgs, newName: \1, newTag: \"$TAG\"/" kustomization.yaml
+        sed -i "s/name: lgs-web, newName: \([^,]*\), newTag: \"[^\"]*\"/name: lgs-web, newName: \1, newTag: \"$TAG-staging\"/" kustomization.yaml
+    - name: Commit. Flux takes it from here.
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git commit -am "staging: deploy ${{ needs.images.outputs.tag }}"
+        git push

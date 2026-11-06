@@ -1,0 +1,81 @@
+name: ci
+on:
+  pull_request:
+  push: { branches: [main] }
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: --health-cmd "redis-cli ping" --health-interval 2s --health-retries 20
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: lgs, POSTGRES_PASSWORD: lgs, POSTGRES_DB: lgs }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U lgs" --health-interval 2s --health-retries 20
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with: { go-version-file: go.mod }
+    - name: Format
+      run: test -z "$(gofmt -l .)"
+    - run: go vet ./...
+    - name: Test under the race detector, including the real stores
+      run: go test -race -short ./...
+      env:
+        REDIS_URL: redis://localhost:6379
+        DATABASE_URL: postgres://lgs:lgs@localhost:5432/lgs
+    - name: Play whole games
+      run: go test ./internal/harness/
+    - name: Balance report
+      run: go run ./cmd/lgs balance | tee -a "$GITHUB_STEP_SUMMARY"
+
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with: { go-version-file: go.mod }
+    - name: Generated code matches the protos
+      run: |
+        sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+        go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+        scripts/gen-proto.sh
+        # Ignore comment lines: the header names the protoc version, and apt's is older
+        # than anyone's laptop. A real drift changes code.
+        git diff --exit-code -I'^//' gen/
+
+  web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: web } }
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with: { node-version: 22, cache: npm, cache-dependency-path: web/package-lock.json }
+    - run: npm ci
+    - run: npm run build # generates next-env.d.ts and types, which typecheck needs
+    - run: npm run typecheck
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with: { go-version-file: go.mod }
+    - name: Overlays render and match the Kubernetes schema
+      run: |
+        for env in staging production; do
+          go run sigs.k8s.io/kustomize/kustomize/v5@latest build "platform/lgs/overlays/$env" \
+            | go run github.com/yannh/kubeconform/cmd/kubeconform@latest -strict -ignore-missing-schemas -summary
+        done
+    - name: Bicep compiles
+      run: |
+        az bicep install
+        az bicep build --file infrastructure/bicep/main.bicep --stdout > /dev/null

@@ -1,0 +1,71 @@
+# The only service that runs two: it holds nothing but open SSE streams, and a
+# rolling deploy costs each browser one automatic reconnect.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: { app: gateway }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: gateway }
+  template:
+    metadata:
+      labels: { app: gateway }
+    spec:
+      serviceAccountName: lgs-secrets
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+      - name: gateway
+        image: lgs
+        args: [gateway]
+        ports:
+        - { name: http, containerPort: 8080 }
+        env:
+        - { name: LGS_SIMULATION_ADDR, value: "simulation:7001" }
+        - { name: LGS_INFRASTRUCTURE_ADDR, value: "infrastructure:7002" }
+        - { name: LGS_ECONOMY_ADDR, value: "economy:7004" }
+        - { name: LGS_OBSERVABILITY_ADDR, value: "observability:7005" }
+        - { name: LGS_EVENTS_ADDR, value: "events:7006" }
+        - { name: LGS_PLAYERSTATE_ADDR, value: "playerstate:7007" }
+        - { name: ALLOWED_ORIGINS, value: PATCHED_BY_OVERLAY }
+        - { name: CLIENT_IP_HEADER, value: X-Real-IP } # set by the ingress, the only way in from outside the cluster
+        readinessProbe:
+          httpGet: { path: /healthz, port: http }
+        resources:
+          requests: { cpu: 100m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+        volumeMounts:
+        - { name: secrets-sync, mountPath: /mnt/secrets, readOnly: true }
+      volumes:
+      - name: secrets-sync
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes: { secretProviderClass: lgs-connections }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  selector: { app: gateway }
+  ports:
+  - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway
+  annotations:
+    # SSE streams look idle to a proxy with default timeouts.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  ingressClassName: webapprouting.kubernetes.azure.com
+  rules:
+  - host: PATCHED_BY_OVERLAY
+    http:
+      paths:
+      - { path: /, pathType: Prefix, backend: { service: { name: gateway, port: { name: http } } } }
