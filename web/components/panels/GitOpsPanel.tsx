@@ -84,7 +84,9 @@ export function GitOpsPanel({ gameId, frame, toast }: Props) {
   const run = runs[0];
   const versions = frame?.gitops?.versions ?? [];
   const inManifest = draft ? getValue(draft, "version") : null;
-  const lines = (draft ?? "").split("\n").length;
+  const draftLines = (draft ?? "").split("\n");
+  const lines = draftLines.length;
+  const widest = Math.max(...draftLines.map((l) => l.length));
 
   return (
     <div className="stack">
@@ -148,6 +150,7 @@ export function GitOpsPanel({ gameId, frame, toast }: Props) {
               aria-label="platform.yaml"
               spellCheck={false}
               rows={lines}
+              cols={widest + 1}
               wrap="off"
               value={draft ?? ""}
               onChange={(e) => setDraft(e.target.value)}

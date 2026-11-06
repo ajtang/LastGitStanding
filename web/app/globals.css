@@ -139,9 +139,11 @@ h3 { font: 700 13px var(--mono); }
 .chip { background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 3px 7px; font: 400 11.5px var(--mono); cursor: pointer; color: var(--text-2); }
 .chip:hover:not(:disabled) { color: var(--text); border-color: var(--text-3); }
 .chip:disabled { opacity: .4; cursor: default; }
-.editor { display: flex; background: #0a0d12; border: 1px solid var(--line); border-radius: 6px; max-height: 44vh; overflow: auto; }
+/* flex-start because stretch would squeeze the textarea down to max-height, and its text
+   can't scroll on its own. The editor is the one scroller, moving numbers and text together. */
+.editor { display: flex; align-items: flex-start; background: #0a0d12; border: 1px solid var(--line); border-radius: 6px; max-height: 44vh; overflow: auto; }
 .gutter { margin: 0; padding: 8px 8px 8px 6px; text-align: right; color: var(--text-3); font: 400 12px/1.5 var(--mono); user-select: none; position: sticky; left: 0; background: #0a0d12; }
-.editor textarea { flex: 1; min-width: 0; resize: none; border: 0; background: none; padding: 8px 8px 8px 2px; font: 400 12px/1.5 var(--mono); outline: none; white-space: pre; overflow: hidden; }
+.editor textarea { flex: 1 0 auto; resize: none; border: 0; background: none; padding: 8px 8px 8px 2px; font: 400 12px/1.5 var(--mono); outline: none; white-space: pre; overflow: hidden; }
 .diff { margin: 0; background: #0a0d12; border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: 400 12px/1.5 var(--mono); max-height: 44vh; overflow: auto; }
 .diff-add { color: var(--good); display: block; background: rgba(62, 207, 142, .08); }
 .diff-del { color: var(--critical); display: block; background: rgba(255, 107, 94, .08); }
